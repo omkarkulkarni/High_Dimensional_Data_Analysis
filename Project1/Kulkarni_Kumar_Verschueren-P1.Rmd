@@ -1,0 +1,267 @@
+---
+title: "Analysis of High Dimensional data HW1"
+author: "Omkar Kulkarni, Thomas Verschueren, Alok Kumar"
+date: "March 6, 2016"
+output: pdf_document
+---
+
+# 1. Introduction
+We have data on avarage daily rainfall (mm/day) for the 365 days in the year and for 35 Canadian cities.
+
+By doing Functional Data Analysis we reduce the dimension from p=365 to m+1, with m the degree of a polynomial. Next we perform Multi Dimensional Scaling on the avarage daily rainfall functions of the Canadian cities. This way we obtain a reduction from m+1 to k=2.
+
+# 2. Analysis
+
+## 2.1 Functional Data Analysis
+
+First we read the data
+
+```{r}
+setwd("C:/Users/ThomasV/Downloads/minerva files/MASTAT/sem2/HighDim/[HW1]")
+#install.packages("ldr")
+#library(ldr) # needed for the bf function for generation of Fourier basis
+
+load("CanadianWeather.rda")
+
+da<-CanadianWeather[[1]]
+da<-da[,,"Precipitation.mm"] # precipitation data
+MetaData<-data.frame(city=colnames(da), region=CanadianWeather$region, 
+                     province=CanadianWeather$province, coord=CanadianWeather$coordinates)
+```
+
+For the transformation to functions we chose 'polynomial basis functions'. 
+We opted for the degree of polynomial m=10 because starting from 10 we obtained nice fits for the rainfall data. An increase in degree seemed to be an overfit.
+
+```{r}
+# set m (degree of polynomials)
+m <-10
+
+# Rescaling days [1,365] to [0,1] interval
+days<-1:365
+days<-(days-min(days))/(diff(range(days))) # rescaling to [0,1]
+phi<-poly(days,degree=m) 
+#dim(phi)
+
+# Generating theta_hat matrix
+# loop: do for each city (row) : estimation of the m+1 theta parameters 
+# Optional : plot rainfall data with polynomial fit  
+# write theta parameters to theta matrix
+
+theta <- matrix(NA,nrow=dim(da)[2],ncol=m+1) # initialisation of theta matrix
+i=1
+R2 = c()
+for (city in colnames(da)){
+  m.city<-lm(da[,city]~phi)
+  #summary(m.city)
+  # plot of fitted function
+  #string_name <- paste(city," (m=",m,")") #concatenate city name with degree m of polynomial
+  #plot(1:365,da[,city],main=string_name, xlab="day", ylab="precipitation (mm/day)")
+  #lines(1:365,m.city$fitted.values,type="l", col=2) 
+  # write theta parameters to theta matrix
+  theta[i,] <- m.city$coefficients
+  i=i+1
+  #R2[i] = summary(m.city$)
+}
+#hist(R2)
+```
+
+We obtained the $\boldsymbol{\Theta}$ matrix of n = 35 rows (cities) by m+1 = 11 columns (regression coefficients of the polynomial fit for each city). 
+
+## 2.2 Multidimensional Scaling of Functions
+
+We apply a MDS to $\boldsymbol{\Theta}$, so that we can construct a 2-dimensional plot with each point representing a city. The distances between the points in the 2-dimensional MDS space are approximations of the distances between the rows of $\boldsymbol{\Theta}$, and hence can be interpreted as distances between the precipitation functions. 
+
+The MDS starts from the truncated SVD of $\boldsymbol{\Theta}$, 
+\[
+   \boldsymbol{\Theta}_k = \boldsymbol{U}_k\boldsymbol{D}_k\boldsymbol{V}_k^t
+\]
+
+```{r}
+
+# SVD
+X <- theta
+n <- nrow (X)
+H <- diag (n) -1/n* matrix (1, ncol=n, nrow=n)
+X[,] <- H %*% as.matrix (X)  # column centering of data
+#colMeans(X)
+round(colMeans(X), digits=10) # check column centered!
+X.svd <- svd(X)
+#To show a 2 dimensional plot. k = 2  
+k <-2
+Uk <- X.svd$u[ ,1:k]
+Dk <- diag(X.svd$d[1:k])
+Zk <-Uk %*% Dk
+rownames(Zk) <- colnames(da)
+#Zk
+
+## Creation of the biplot (manually)
+# V-tilda Vectors in the 2 dimensional space
+Vk <- X.svd$v[ ,1:k]
+Vk <- as.data.frame(Vk)
+rownames(Vk) <- 0:m
+#Vk
+
+# Biplot: plot of city names in 2 dimensional space (Z1, Z2)
+plot(Zk, type ="n", xlab ="Z1", ylab ="Z2",
+      xlim =c(-43,15), ylim =c(-17,23), main = "Biplot")
+text(Zk, rownames(Zk), cex=0.45)
+
+# Biplot: Plot of V-tilda Vectors in the 2 dimensional space
+alpha <- 30 # rescaling to get better visualisation
+for (i in 1:17) {
+  arrows(0, 0, alpha*Vk[i,1], alpha*Vk[i,2],
+          length=0.2 , col=2)
+  text(alpha*Vk[i,1], alpha*Vk[i,2], rownames(Vk)[i], 
+         col=2, pos=2, vfont=c("serif","bold"), cex=1.0) 
+}
+abline (v=0 , lty=2, col ='grey')
+abline (h=0 , lty=2, col ='grey')
+```
+
+## 2.3 Interpretations
+
+The MDS resulted in a biplot. We expect cities located closely to each other on the biplot show similar rainfall patterns and similar polynomial precipitation functions and cities located far away from each other on the biplot show dissimilar rainfall patterns and dissimilar polynomial precipitation functions. The polynomial functions of degree m form a m+1 dimensional base which lead to m+1 V-tilda vectors when projected on the 2 dimensional (Z1,Z2) space. 
+Cities with high (low) values for projections on V-tilda "i" (i=O,...,m+1) will have high (low) estimated regression coefficients for the polynomial function of degree i. 
+
+The bar plots show the elements in V1 (1st dimension of Zk with k=2) and V2 (2nd dimension of Zk with k=2). For instance high V-tilda "2" values will lead to low Z1 coordinates and low Z2 coordinates. Vancouver and Victoria (which have a high V-tilda "2" distance when projected on the V-tilda "2" vector) indeed have low Z1 coordinates and low Z2 coordinates.  
+
+```{r}
+# Barplots with elements of Vk
+par(mfrow=c(1,2))
+barplot(Vk[,1], xlab="V1", names.arg=NA, horiz=TRUE, main = "Bar plot V1")
+for(i in 1:(m+1))
+{   text(0.05, -0.6+i*1.2,rownames(Vk)[i], cex=0.8, vfont=c("sans serif","bold"))}
+
+barplot(Vk[,2], xlab="V2", names.arg=NA, horiz=TRUE, main = "Bar plot V2")
+for(i in 1:(m+1))
+{ text(0.05, -0.6+i*1.2, rownames(Vk)[i], cex=0.8, vfont=c("sans serif","bold")) }
+par(mfrow=c(1,1))
+
+```
+
+
+To give a meaningful interpretation of the biplot, we combine the (Z1,Z2) coordinates 
+of the cities with the metadata for every city and we create some extra variables 
+out of the available data for each city: total yearly precipitation (mm); total precipitation per season (mm); season with the highest total precipitation. 
+With these data we perform a linear regression to see if there is a relation between
+the (Z1,Z2) coordinates of the cities and the metadata (and the extra created variables).
+
+```{r}
+## create database with more variables out of available info
+data.cities <-MetaData
+data.cities$V1 <- Zk[,1]
+data.cities$V2 <- Zk[,2]
+# total yearly precipitation 
+data.cities$total.rain <- rowSums(t(da))
+data.cities$total.rain.centered <- data.cities$total.rain - mean(data.cities$total.rain)
+# total precipitation per season
+data.cities$total.spring <-rowSums(t(da)[,80:171]) # march,21 till june,20
+data.cities$total.summer <-rowSums(t(da)[,172:263]) # june,21 till sept,20
+data.cities$total.autumn <-rowSums(t(da)[,264:354]) # sept,21 till dec,20
+data.cities$total.winter <-rowSums(t(da)[,c(1:79,355:365)]) # dec,20 till dec,31 and 
+                                                            # jan,1 till march,20
+# which season has maximal total precipitation ?
+data.cities <- within(data.cities,{
+  season.max.rain <- apply(data.cities[, c("total.spring","total.summer",
+                                           "total.autumn","total.winter")], 
+                           1, function(x) which(x == max(x)))  
+  season.max.rain <- factor(season.max.rain, 
+                      levels=c(1,2,3,4),
+                      labels=c("spring","summer","autumn","winter")
+  )
+})
+summary(data.cities$season.max.rain)
+```
+
+Most cities (26) have a maximal rainfall in summer. None of the cities has
+a maximal rainfall in spring. 
+
+First we perform a linear regression on dependent variable Z1 with independent variables 
+region (categorical variable with base "Arctic"), (centered) total yearly rainfall (mm) 
+and a categorical variable which indicates the 
+season with the highest rainfall (dummy variables for autumn and winter, base=summer).
+Since "region"" and "province"" seem to be quite highly correlated, (eg. region "pacific" = 
+province "British Colombia") we decided to implement only region in the regression model.
+
+```{r}
+## Interpretation V1
+#cor.test(as.numeric(data.cities$region), as.numeric(data.cities$province))
+m.V1<-lm(V1 ~ region + total.rain.centered + season.max.rain , data=data.cities)
+summary(m.V1)
+
+#the residuals are normally distributed
+#qqnorm(m.V1$residuals)  
+#qqline(m.V1$residuals)
+
+```
+
+The regression results show a highly significant (p<0.001) negative relationship between 
+Z1 and total yearly rainfall. Pr. Rupert has a very high total yearly rainfall which 
+results in a very low Z1 coordinate. Cities which have their highest rainfall in autumn and winter 
+(eg Pr. Rupert, Vancouver, Victoria,...) will have a significantly (p<0.001) lower Z1 coordinate compared to cities which have their highest rainfall in summer (eg London, Thunder Bay) . 
+Regions "Atlantic" and "Pacific" show a very low significant relationship (p<0.05) with Z1 which disappears after a Bonferroni correction.
+We verified visually (by a qqplot) that the residuals follow a normal distribution. 
+
+Next we performed a regression on the dependent variable Z2 with the same independent variables as for Z1.
+ 
+
+```{r}
+###interpretation V2
+m.V2<-lm(V2 ~ region + total.rain.centered + season.max.rain , data=data.cities)
+summary(m.V2)
+
+#the residuals are normally distributed
+#qqnorm(m.V2$residuals) 
+#qqline(m.V2$residuals)
+
+```
+
+The regression results show a highly significant (p<0.001) positive relationship between 
+Z2 and total yearly rainfall. Pr. Rupert has a very high total yearly rainfall which 
+results in a very high Z2 coordinate. Cities which have their highest rainfall in autumn and winter 
+(eg Pr. Rupert, Vancouver, Victoria,...) will have a sigificantly (p<0.001) lower Z2 coordinate compared to cities which have their highest rainfall in summer (eg London, Thunder Bay). 
+"Atlantic" regions have a significantly (p<0.01) lower Z2 coordinate compared to "Arctic" cities.
+We verified visually (by a qqplot) that the residuals follow a normal distribution. 
+
+Next a selection of scatter plots of cities with "characteristical" yearly rainfall patterns is plotted which will be interpreted based on the biplot and the regression results. Below the plots, a table shows the total yearly rainfall (mm); the season with the highest rainfall; and the total rainfall (mm) for each season (spring, summer, autumn and winter) for each city. 
+
+```{r}
+# Selection of scatter plots of cities with "characteristical" yearly rainfall patterns 
+par(mfrow=c(2,2))
+city_plot = c("London","Pr. Rupert", "Vancouver", "Victoria", 
+              "Halifax", "Pr. Albert", "Thunder Bay", "Kamloops")
+for (i in city_plot)
+{
+  m.city<-lm(da[,i]~phi)
+  plot(1:365,da[,i], main=i, cex=0.5, xlab="day", ylab="precipitation (mm/day)")
+  lines(1:365,m.city$fitted.values,type="l", col=2) 
+}
+par(mfrow=c(1,1))
+rm(i)
+# informative table (for each city): total yearly rainfall (mm); season with the highest  
+# rainfall; and total rainfall (mm) for each season (spring, summer, autumn and winter)  
+data.cities2 <- data.cities[,c("total.rain","season.max.rain","total.spring",
+                               "total.summer","total.autumn","total.winter")]
+colnames(data.cities2) <- c("total.rain","max.season","spring","summer","autumn","winter")
+data.cities2
+
+```
+
+First a scatterplot of London is shown. London has an average total yearly rainfall compared to the other cities. It's not clearly visible which season has a maximal total rainfall. There are no clear visible peaks in the scatterplot. 
+
+Vancouver and Victoria have a maximal total rainfall in autumn and winter respectively. Our regression results indicated this results to lower Z1 and lower Z2 coordinates compared to cities which have a maximal total rainfall in summer. Vancouver and Victoria show similar rainfall scatterplots. In the biplot they are located close to each other. 
+
+Apparently all other cities "along" V-tilda "2" have a maximal total rainfall in autumn. In the biplot Halifax is situated between London and Vancouver/Victoria. Halifax has a maximal total rainfall in autumn and has lower Z1 and lower Z2 coordinates compared to London which has a maximal total rainfall in summer. However the peak for the maximal total rainfall in autumn is less pronounced (compared to Vancouver and Victoria). Therefore Halifax is situated in between London and Vancouver/Victoria. Similar results for Sydney, Yarmouth, St. Johns, Fredericton, Charlotville which have a maximal total rainfall in autumn and are along the V-tilda "2".
+
+Pr. Rupert also has a maximal total rainfall in autumn. This would normally result into lower Z1 and lower Z2 coordinates compared to London which has maximal total rainfall in summer. However Pr. Rupert seems to have a very high Z2. This is because Pr. Rupert has a very high total yearly rainfall which results in a very low Z1 coordinate and a very high Z2 coordinate. The positive impact on Z2 because of a very high total yearly rainfall seems to dominate the negative impact on Z2 because of a maximal total rainfall in autumn, which results in a very high Z2 coordinate for Pr. Rupert.
+
+Pr. Albert (and Winnipeg, Regina, Edmonton) have a low total yearly rainfall which results in a quite high Z1 coordinate and a quite low Z2 coordinate. They all have a clear maximum total rainfall in summer. They are all located close to each other in the biplot. 
+
+Thunderbay (and cities close to Thunderbay in the biplot) also have a maximum total rainfall in summer like Pr. Albert, but their their maximum is less pronounced compared to Pr. Albert. Also their total yearly rainfall is higher compared to Pr. Albert.
+
+Finally a scatterplot of Kamloops is shown. Kamloops has a low total yearly rainfall and the scatterplot shows multiple peaks. It's not clearly visible which season has a maximal total rainfall. In the biplot Kamloops is located somewhat away from to the other cities with low total yearly rainfall like Pr. Albert.
+
+
+# 3. Conclusion
+We can conclude cities located closely to each other on the biplot show similar rainfall patterns. Cities located far away from each other on the biplot show dissimilar rainfall patterns. These (dis)similar patterns can be explained in terms of total yearly rainfall and maximum total rainfall in a specific season.  
+
