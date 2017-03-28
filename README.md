@@ -1,7 +1,9 @@
 # High Dimensional Data Analysis
 
-This repository contains the project works carried out during the course of High Dimensional Data Analysis. 
-1. 
+This repository contains the project works carried out during the course of High Dimensional Data Analysis.     
+  1. One
+  2. Two
+  3. Three
 
 
 
