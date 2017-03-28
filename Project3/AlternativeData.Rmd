@@ -1,0 +1,58 @@
+---
+title: "Analysis of High Dimensional Data"
+author: "Addendum to project assignment 2015-2016"
+date: "Alternative Dataset for Project"
+output: pdf_document
+---
+
+# Introduction
+
+The dataset provided to you for the project assignment (part of American Gut project) may still be used for you project assignment, but do not expect to find good prediction models. Since students often get more fun out of building models that seem to work pretty well, we give you the option to use another microbiome dataset (see further). You are completely free to choose: either you continue working with the American Gut data, or you shift to the new data. It will have no effect whatsoever on your marks. 
+
+The original assignment remains unchanged; only the data and the outcome to be predicted may be exchanged with the data presented in this document. 
+
+# New dataset: diabetes in infants
+
+The new data comes from Kostic et al. (2015). You can find the paper on Minerva, but there is no need to read to full paper. A group of 33 infants who were genetically predisposed to develop type I diabetes (T1D) were followed over time. At several points in time the gut microbiome was characterised, resulting in 777 biological samples from these 33 infants. You are given the abundances of 2239 OTUs. The dataset also contains the following variables:
+
+ - T1D: defined as 0 when no T1D was diagnosed, and 1 when T1D was diagnosed (i.e. 0 refers to a control and 1 to a case)
+ - Age: age (in days) when the gut sample was taken
+ 
+ You may choose to either predict the binary T1D or the continuous Age variable. 
+ 
+You are given three datasets:
+
+  - OTUTable.RData: data in OTUTable object. The rows refer to the 777 biological samples. The first 2239 columns refer to the OTUs, for which the abundances are given (counts). The last two columns are T1D and Age. 
+  - OTUTableRel.RData: same as OTUTable.RData, but now for the 2239 OTUs the relative abundances are given (i.e. row sums are equal to 1). This is biologically more relevant for prediction, but perhaps that the original data can be used for use of some graphical exploration methods you find in the literature (this is not a hint; it's just for completeness).
+  - phyloD.RData: a phyloseq dataset (An R S4 object). This is the original complete dataset. If you are interested in the data, you find here more info on the taxonomy of the OTUs and some more info on the samples (see R code further down). You do not necessarily need this dataset; it's only for the interested student. 
+  
+# R code for reading the data
+
+```{r}
+setwd("~/dropbox/education/AnalysisHighDimensionalData/project1516")
+setwd("C:/Users/Omkar/OneDrive/Analysis of High Dimensional Data/Project2")
+# read data
+load("OTUTable.RData") # data in OTUTable
+load("OTUTableRel.RData") # data in OTUTableRel
+
+# load the orignal complete data in the phyloseq R package (need to installed from Bioconductor)
+source("https://bioconductor.org/biocLite.R")
+biocLite("phyloseq")
+library(phyloseq)
+
+load("phyloD.RData")
+
+# sample information
+SampleData<-phyloD@sam_data
+head(SampleData)
+
+# OTU taxonomy information
+TaxData<-phyloD@tax_table
+TaxData[1:10,]
+```
+
+
+
+# References
+
+Kostic, A. D., Gevers, D., Siljander, H., Vatanen, T., Hyötyläinen, T., Hämäläinen, A. M., ... & Lähdesmäki, H. (2015). The dynamics of the human infant gut microbiome in development and in progression toward type 1 diabetes. Cell host & microbe, 17(2), 260-273.

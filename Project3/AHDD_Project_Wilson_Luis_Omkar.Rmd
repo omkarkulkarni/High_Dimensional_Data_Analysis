@@ -1,0 +1,595 @@
+---
+title: "Analysis of High Dimensional Data"
+author: "Wilson Tendong,
+Luis CampoverdeReinoso, 
+Omkar Kulkarni"
+date: "18 May 2016"
+output: pdf_document
+mainfont: Arial
+fontsize: 14pt
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{inputenc}
+- \usepackage{epstopdf}
+---
+
+```{r, echo=FALSE,eval=FALSE, warning=FALSE, message=FALSE}
+#NB: Code is not executed in document.
+
+load("OTUTable.RData") # data in OTUTable
+load("OTUTableRel.RData") # data in OTUTableRel
+#source("https://bioconductor.org/biocLite.R")
+#biocLite("phyloseq")
+library(phyloseq)
+#install.packages("reshape2") 
+library(reshape2)
+load("phyloD.RData")
+library(glmnet)
+library(ca)
+library(calibrate)
+library(labdsv)
+library(pastecs)
+library("MVA")
+###########################
+#       Part 1           ##
+# Data exploration       ##
+###########################
+
+# sample information
+SampleData<-phyloD@sam_data
+
+# OTU taxonomy information
+TaxData<-phyloD@tax_table
+
+
+#Describing the frequency of the 33 patients
+# recode the variable Age_at_Collection
+#Categorising Age in intervals of 180 days
+SampleData$age<-findInterval(SampleData$Age_at_Collection, 
+                             c(0,180,360,540,720,900,1080))
+kable(table(SampleData$age), caption='Age categories')
+#rownames(TaxData)=="4420570"
+#TaxData[1146,]
+#rownames(SampleData)=="G36787"
+#SampleData[566,]
+
+#plots using ID
+bartable1<-table(SampleData$Subject_ID)
+
+scores<-cbind(SampleData$Total_Reads, SampleData$T1D_Diagnosed, 
+               SampleData$IAA_Level , SampleData$GADA_Level , 
+              SampleData$IA2A_Level,
+              SampleData$ZNT8A_Level, SampleData$ICA_Level,
+              SampleData$Age_at_Collection, 
+              table(SampleData$Subject_ID))
+#Summary statistics
+stat.desc(scores, basic=F)
+
+#Summary plots
+barplot(bartable1, ylab="Frequency of tests per ID"
+        , main="By Patient ID",
+         col=as.numeric(unique(SampleData$Subject_ID)),
+        cex.names=0.8, las=2)
+bartable2 <- table(SampleData$Subject_ID, SampleData$T1D_Diagnosed)
+barplot(bartable2, beside = TRUE, ylab="Frequency of tests per ID"
+        , xlab="Test Diagnosed",
+        col=as.numeric(unique(SampleData$Subject_ID))
+        ,cex.names=0.8, las=2)
+
+#Frequency of tests distribution per Age group
+leyenda<-c("[0,180)","[180,360)","[360,540)","[540,720)","[720,900)","[900,1080)","[1080, Inf)")
+
+bartable4 <- table(SampleData$age, SampleData$T1D_Diagnosed)
+barplot(bartable4, beside = TRUE, ylab="Frequency of tests per Age group (in days)"
+        , main="By T1D Diagnosed"
+        , xlab="Test Diagnosed",
+        col=as.numeric(unique(SampleData$age))
+        ,cex.names=0.8, las=2
+        , legend = leyenda) 
+
+bartable5 <- table(SampleData$age, SampleData$Post_T1D_Diag)
+barplot(bartable5, beside = TRUE, ylab="Frequency of tests per Age group (in days)"
+        ,main="By Post T1D Diagnosed", xlab="Test Diagnosed",
+        col=as.numeric(unique(SampleData$age))
+        ,cex.names=0.8, las=2
+        , legend = leyenda) 
+
+##############################################################
+
+##  *Correspondence Analysis* ##
+
+OTUTable$age<-findInterval(OTUTable$Age, 
+                             c(0,180,360,540,720,900,1080))
+x <- na.omit(OTUTable[,-2240:-2241])
+x$com -> com
+x$com <- NULL
+p.lab <- as.numeric(x$com)
+#x$row.names<- as.factor(OTUTable$age)
+x2 <- as.matrix(x)
+rownames(x2)<- as.factor(OTUTable$age)
+y <- as.matrix(colnames(x2))
+x2 <- na.omit(x2[-566,])
+#prop.table(as.matrix(x),1)
+#prop.table(as.matrix(x),2)
+#ca(x)
+plot(ca(x2),main="Correspondence Analysis: Age group and OTU")
+
+r.c <- ca(x2)$rowcoord
+c.c <- ca(x2)$colcoord
+
+par(ask=TRUE)
+xrange <- range(r.c[,1]*1.5,c.c[,1]*1.5)
+yrange <- range(r.c[,2]*1.5,c.c[,2]*1.5)
+plot(xrange,yrange,type='n', xlab='Dimension 1', ylab='Dimension 2', main='Correspondance Plot')
+points(r.c[,1], r.c[,2], pch=p.lab, col=com, cex=0.75)
+points(c.c[,1], c.c[,2], pch=4)
+textxy(c.c[,1], c.c[,2], labs=y, cx=0.75)
+
+#Lets try removing the outlier
+x2 <- na.omit(x2[-566,])
+ca.1 <- ca(x2)
+plot(ca.1,scaling=1)
+
+
+### *Multiple Correspondence Analysis* ##
+
+# load packages
+require(FactoMineR)
+require(ggplot2)
+# select these columns
+newdat = SampleData[, c("Case_Control", "Gender","Delivery_Route",
+"T1D_Diagnosed","Post_T1D_Diag","HLA_Risk_Class","AAB_positive",
+"AAB_Post_LastNeg","AAB_Post_FistPos","AbxExposureAbsolute",
+"PostAbxExposure","AbxAtCollection","AbxPreCollection","IllnessAtCollection",
+"IAA_Level","GADA_Level","IA2A_Level","ZNT8A_Level","ICA_Level","IAA_Positive",
+"GADA_Positive","IA2A_Positive","ZNT8A_Positive","ICA_Positive","Flowcell", "age")]
+# take a look
+names <- c("Case_Control", "Gender","Delivery_Route",
+           "T1D_Diagnosed","Post_T1D_Diag","HLA_Risk_Class","AAB_positive",
+           "AAB_Post_LastNeg","AAB_Post_FistPos","AbxExposureAbsolute",
+           "PostAbxExposure","AbxAtCollection","AbxPreCollection",
+           "IllnessAtCollection","IAA_Level","GADA_Level","IA2A_Level",
+           "ZNT8A_Level","ICA_Level","IAA_Positive","GADA_Positive",
+           "IA2A_Positive","ZNT8A_Positive","ICA_Positive","Flowcell", "age")
+newdat[,names] <- lapply(newdat[,names] , factor)
+
+# number of categories per variable
+cats = apply(newdat, 2, function(x) nlevels(as.factor(x)))
+#cats
+table(newdat$Post_T1D_Diag,newdat$T1D_Diagnosed)
+
+#mca with MASS
+# apply MCA
+require(MASS, quietly = TRUE)
+
+# apply mca
+mca2 = mca(newdat, nf = 5)
+# eigenvalues
+#mca2$d^2
+# column coordinates
+head(mca2$cs)
+# row coordiantes
+head(mca2$rs)
+
+# data frame for ggplot
+mca2_vars_df = data.frame(mca2$cs, Variable = rep(names(cats), cats))
+
+#We can get an MCA plot of variables:
+# plot
+ggplot(data = mca2_vars_df, 
+       aes(x = X1, y = X2, label = rownames(mca2_vars_df))) +
+        geom_hline(yintercept = 0, colour = "gray70") +
+        geom_vline(xintercept = 0, colour = "gray70") +
+        geom_text(aes(colour = Variable)) +
+        ggtitle("MCA plot of Sample variables")
+
+```
+
+# PART II
+
+\textit{NB: The data exploration could be found on a separate document (Part I) and codes included in Rmarkdown script}.
+
+All predictive model building was done using the data containing the relative frequency counts of the microbiomes (OTUTableRel.RData) as its row sums equal to 1. Moreover it is  mentioned that it is biologically more relevant for prediction.
+
+
+# 2) Prediction Model : Principal component regression (PCR) 
+
+Principal component regression is a multivariate regression method usually employed in high dimensional data analysis; situations where there is relatively fewer number of observations (\textit{n}) compared to predictor variables (\textit{p}). This technique also adjust for the effect of multicollinearity of predictors which may lead to biased variances of least square estimates.
+
+In performing PCR, the dimensionality of the data set is reduced and the independent variables are transformed into their principal components. Each principal component is independent from the others due to their orthogonal property, hence zero correlation with each other.
+Note that in PCR, the response variable is regress on the PCAs which contain information on the variability in the independent variables alone. Therefore there is no guarantee of having a good prediction model. 
+
+In this exercise, our aim is to construct a predictive model using PCR that would allows prediction of the age of a child given his/her microbiome composition. The 'OTUTableRel.RData' data set would be used. 
+
+
+```{r, message=FALSE, warning=FALSE}
+# read data
+load("OTUTable.RData") # data in OTUTable
+load("OTUTableRel.RData") # data in OTUTableRel
+Data1 <- OTUTable
+Data2 <- OTUTableRel
+library(PMA)
+library(glmnet)
+library(MASS)
+library(nsprcomp)
+library(boot)
+library(knitr)
+```
+
+
+## Model building
+
+Data was split into 70\% training data and 30\% test and both dependent (Age of child) and independent (microbiome) variables standardized. The training data was used for model building while model validation was done on the test data. The objective is to have a final model that minimizes prediction mean square error (MSE).
+
+
+```{r, message=FALSE, warning=FALSE}
+#######################################
+### Principal component regression    #
+#######################################
+####
+#a) Model building
+####
+#dim(Data2)
+#dim(Data1)
+varY <- Data2[,2241] #Extracting the response variable T1D and Age
+varX <- Data2[,-(2240:2242)]
+set.seed(2)
+#Selecting 70% of the data as straining data set
+trainID <- sample(dim(Data2)[1],ceiling(0.7*777)) 
+#Training data set
+trainY <- scale(varY)[trainID]
+trainX <- scale(varX)[trainID,]
+#30% Validation data set (test data set)
+testY <- scale(varY)[-trainID]
+testX <- scale(varX)[-trainID,]
+#round(colMeans(trainX))
+#round(mean(trainY))
+
+```
+
+
+### Cost function
+
+In order to estimate the prediction MSE, we need a cost function.
+
+```{r}
+#Cost functions for estimation of MSE
+MSE=function(observedY,predictedY){
+  n=length(observedY)
+  MSE=(sum((observedY-predictedY)^2))/n
+  return(MSE)
+}
+```
+
+
+### PCA analysis
+
+The PCAs were obtained from the singular value decomposition (SVD) of the independent variables.
+
+```{r}
+#SVD
+X.svd <- svd(trainX)
+#kable(dim(X.svd$v))
+V <- X.svd$v 
+U <- X.svd$u
+D <- diag(X.svd$d)
+#Scores
+Z <- U%*%D
+
+#Scree plot of the relative variation in X explained by PCs.
+par(mfrow=c(1,2))
+totvar <- sum(X.svd$d^2)/(dim(trainX)[1]-1)
+plot(X.svd$d^2/(dim(trainX)[1]-1), type="b",ylab="Eigen value",
+     xlab="n PCs",cex=2, cex.axis=1.5, cex.lab=1.5)
+barplot(X.svd$d^2/(dim(trainX)[1]-1)/totvar,names.arg = 1:dim(trainX)[1],
+        ylab="Proportion of total variance", cex.lab=1.5)
+barplot(cumsum(X.svd$d^2/(dim(trainX)[1]-1)/totvar), names.arg = 1:dim(trainX)[1],
+        ylab="Cummulative prop. of tot. var.",xlab="n PCs", cex.lab=1.5)
+#First 100 eigen values
+barplot((X.svd$d^2/(dim(trainX)[1]-1)/totvar)[1:100], names.arg = 1:100,
+        ylab="Proportion of total variance", xlab='First 100 PCs',cex.lab=1.5)
+
+par(mfrow=c(1,1))
+```
+
+The above plots depict the percent of variance explained in the response variable as a function of the number of components. It could be seen that the variance information is not capture by a few PCs but is spread over the PCs. The first 100 PCs contain less that 70\% of the total variability.
+
+### Model fitting and selection
+
+The objective of PCR is to obtain an efficient and parsimonious model with fewer number of predictors.
+A 10 fold cross-validation (CV) technique was then implemented to determine the optimal number of components to be considered in the model. The motivation for choosing CV rather than LOOCV is due to the decent sample size (\textit{n=}`r dim(trainX)[1]`) and computational efficiency. However, there was no significant difference between 10 fold CV and LOOCV. 
+To assess the number of components to be retained, a plot of the prediction performance (MSE) against the number of components in the model is used. Usually the model with the least extra sample error (MSE) is chosen as the optimal model and in order to avoid over fitting, the local minimum is considered rather than the absolute minimum.
+
+
+
+```{r,echo=F}
+##10 fold CV 
+K=10 
+nPC <- dim(Z)[2]-400 #Using everything gave min MSE with 70 PCs with min MSE=0.2681348
+set.seed(2)
+cv_error <- numeric(0)
+for (i in 1:nPC){
+  data <- data.frame(trainY=trainY,Z[,1:i])
+  cv_mod <- glm(trainY~.,data = data)
+  cv_error[i] <- cv.glm(data, cv_mod, cost = MSE,K=K)$delta[1]
+  #cat("PC 1 to",i,"\n")
+}
+
+nPC_at_min_MSE_CV <- c(1:nPC)[cv_error==min(cv_error)] 
+#So we see that the optimal number of PCs to be considered is 70, MSE=0.2681348
+#Ploting results
+plot(cv_error, ylab = "MSE",xlab="n PCs")
+abline(v=nPC_at_min_MSE_CV)
+#Number of PCs at minimum MSE: 74 PCs
+
+```
+
+The results indicated that a model constituting the first 70 PCs gave the least MSE (`r round(min(cv_error),2)`). This could be visualized by the vertical line in the above plot. 
+
+### Model validation
+
+To validate our model, it is use to predict the responses in the test data set. This is done by constructing scores (Z) from the test data set using the loadings (V) from the training data set. To evaluate the optimal model fit, a plot of predictive performance against increasing number of components up to 70 is assessed. 
+
+```{r}
+#######################################
+# Model validation
+##################
+#Creating the Z scores of the test data set using the loadings of the trainign data set
+testX <- as.matrix(testX)
+Ztest=testX%*%V 
+testX=data.frame(testX)
+nm=names(testX)#We need to name our scores correctly
+
+nPC <- 70  #Number of PCs that gave the least MSE
+msetest=numeric()       
+for(i in 1:nPC){
+  #Just making sure our data is a data frame
+  data=data.frame(Z[,1:i])
+  datatest=data.frame(Ztest[,1:i])
+  #Create identifiable names
+  names(datatest)=nm[1:i]
+  names(data)=nm[1:i]
+  pcr.mod1=glm(trainY~.,data=data)
+  #predict the test data set
+  ypred=predict(pcr.mod1,newdata = datatest)
+  msetest[i]=MSE(testY,ypred)
+  #cat("PC 1 to ",i,"\n")
+}
+nPC_at_min_MSE_test=c(1:nPC)[msetest==min(msetest)] 
+plot(msetest ,xlab = "n PCs",ylab = "MSE")
+abline(h=min(cv_error))
+abline(h=msetest[70],col="red",lwd=1)
+legend('top', legend=c('CV MSE', 'Test MSE'), col=c('black','red'), lty=1)
+```
+
+The results indicates that a model with even lower number of components (59 PCs) did better in predicting the responses in our test data set(test MSE = `r round(min(msetest),3)`). Nonetheless, there test MSE for the latter and the optimal model with 70 PCs (test MSE = `r round(msetest[70],3)`) are somewhat similar. Comparing the latter to the CV MSE (`r round(min(cv_error),3)`), there occur to be pretty close (2\% difference) which signifies that our prediction model is a good fit. Also, considering the fact that the MSE is an estimate and the standard errors are not estimated by CV, it could be likely that the test MSE falls within the 95\% CI of the model MSE.
+However, since the test data is assumed to be future data and unobserved, we would consider the model with 70 PCs as our final model.  
+
+
+# 3) Prediction Model : Penalized Least Square Regression - Lasso 
+
+Before building the model, we split the data in the ratio of 70:30 ending up with 543 observations for the training data set, which is a decent number of observations to build the model. We build the model using the train data set and check for MSE on the "test" data set. 
+
+```{r splitting data}
+## set the seed to make your partition reproductible
+set.seed(13)
+## 70% of the sample size
+smp_size <- floor(0.70 * nrow(OTUTableRel))
+train_ind <- sample(seq_len(nrow(OTUTableRel)), size = smp_size)
+train <- OTUTableRel[train_ind, ]
+test <- OTUTableRel[-train_ind, ]
+rm(train_ind,smp_size)    #remove the intermediate variables
+```
+
+```{r centering of data, echo=FALSE}
+#Centering the the variables
+
+y =  train$Age
+x = train[, 1:2239]   #we do not include T1D in the predictors !!
+
+# scale x (check if we need to scale y too)
+scX=scale(x, scale = TRUE)
+y = scale(y, scale = TRUE) 
+
+xtest = test[ , 1:2239] 
+ytest = test$Age
+
+xtest.scale = scale(xtest, scale = TRUE)
+ytest.scale = scale(ytest, scale = TRUE)  
+```
+
+
+Our objective is to predict 'Age' in days based on OTUs as regressors. With `r ncol(train[, 1:2239])` regressors this is a high dimensional setting. Hence one of the  ways to penalize the regression is L1 norm, i.e Lasso. 
+
+## Lasso model building
+
+
+Lasso is also a penalized regression, like ridge regression. The lasso estimator of $\beta$ is the solution to minimizing the penalized SSE. 
+$$ SSE = \mathbf{||Y - X\beta ||}_2^{2} \, subject \, to \, |\beta| \leq c $$ 
+or, equivalently, minimizing
+$$ SSE = \sum_{i=1}^{n} (Y_i - x_i^{t}\beta)^{2} + \gamma \sum_{j=1}^{p} |\beta_j| $$ 
+
+Selecting the value of $\gamma$ is part of model building and is aim at minimizing the MSE. 
+
+
+```{r Lasso }
+lasso.mod = glmnet(scX,y, alpha = 1)            #alpha = 1 defines lasso
+plot(lasso.mod,xvar ="lambda", xlab ="gamma")
+
+```
+
+When $\gamma$ increases the estimates are shrunken towards zero and once they hit zero, they remain zero on further increasing $\gamma$. A parameter estimate equal to zero, say $\hat{\beta_j} = 0$ , implies that the corresponding predictor is no longer in the model. 
+But we do not know yet what value of gamma is to be chosen to have minimum MSE. Our goal is to have minimum MSE, so that we get good predictions. 
+
+To build the model, we implement a 10 fold CV techniques on the training dataset. Given the sample size, LOOCV and 10 fold CV would end up with similar results.
+
+
+```{r cvglmnet}
+set.seed(154)
+
+mcv_10fold <- cv.glmnet(scX,y,alpha = 1 , nfolds = 10)
+plot(mcv_10fold, xlab = "gamma")
+cat(log(mcv_10fold$lambda.min))
+cat(log(mcv_10fold$lambda.1se))
+```
+
+The above figure shows that from cross validation we get an optimal $\gamma$ value of `r log(mcv_10fold$lambda.min)` for the minimum MSE and $\gamma$ = `r log(mcv_10fold$lambda.1se)` for "Minimum MSE + 1 Standard Error" (in fact this would further reduce the number of predictors, with a slightly higher MSE; if the goal is to also consider the number of predictors this value for gamma would make more sense).
+
+One may also consider an average of both $\gamma$s to balance the number of predictors and MSE. However, our aim is prediction hence we concentrate on minimizing the MSE. 
+
+### Cross validation
+\textit{The CV gives us random values for lambda (even after setting seed); hence we perform 50 simulation runs and take the average value.}
+
+
+```{r cvglmnet in loop}
+#HEAVY CALCULATIONS AHEAD
+
+#The results of cv.glmnet are random, since the folds are selected at random
+#Hence reduce this randomness by running cv.glmnet many times, and averaging the error $curves.
+iteration=50
+lambdas = NULL
+for (i in 1:iteration)
+{
+    fit <- cv.glmnet(scX,y,alpha = 1 , nfolds = 10)
+    errors = data.frame(fit$lambda,fit$cvm, fit$lambda.1se)
+    lambdas <- rbind(lambdas,errors)
+}
+
+# take mean cvm for each lambda
+lambdas <- aggregate(lambdas[, 2:3], list(lambdas$fit.lambda), mean)
+
+# select the best one
+bestindex = which(lambdas[2]==min(lambdas[2]))
+bestlambda = lambdas[bestindex,1]
+
+# bestindex = which(lambdas[3]==min(lambdas[3]))
+# bestlambda.1se = lambdas[min(bestindex),1]  #can be more than one bestindex hence min
+
+# NEED TO FURTHER LOOK INTO HOW TO CAPTURE  fit$lambda.1se from this 
+
+log(bestlambda)
+
+# and now run glmnet once more with bestlambda
+cv.final.model <- glmnet(scX,y,lambda=bestlambda)
+paste('Number of predictors for Lasso =',dim(summary(coef(cv.final.model)))[1], sep=' ')
+# we have 95 predictors 
+```
+
+
+Hence with the model selected, we get \textbf{`r dim(summary(coef(cv.final.model)))[1]` coefficients} which are not shrunk to zero and are most significant after L1 norm. 
+
+We can also look at the elastic model, which is a combination of Ridge and Lasso. The model building for elastic would mean, finding the value of $\alpha$ and $\gamma$ both, which together minimizes the prediction MSE. 
+
+
+```{r elastic }
+mcv.elastic <- cv.glmnet(scX, y, alpha=0.4, nfolds = 10)
+plot(mcv.elastic, main="elastic model")
+
+final.elastic.model <- glmnet(scX,y,lambda=mcv.elastic$lambda.min, alpha = 0.4)
+paste('Number of predictors for elastic net =',
+      dim(summary(coef(final.elastic.model)))[1], sep=' ')
+```
+
+
+The above figure shows the Mean squared error vs log of lambda for the elastic model. The vertical line at the left represents minimum MSE and the one at left minimum MSE + 1 Standard error. With elastic model ($\alpha = 0.4$) we get `r dim(summary(coef(final.elastic.model)))[1]` coefficients which is much more than that for Lasso. However, unlike for Lasso, the choice of $\alpha = 0.4$ is random. No cross validation (or other technique) was implemented to choose the best $\alpha$ weight for Ridge and $1-\alpha$ weight for Lasso. 
+
+
+```{r }
+plot(lasso.mod, xvar ="lambda", xlab ="gamma")
+abline(v = log(cv.final.model$lambda), col="red")
+abline(v= log(mcv.elastic$lambda.min), col="blue")
+legend(-4.9,0.17, c("Lasso CV","Elastic Model"),lty=c(1,1), lwd=c(2.5,2.5),col=c("red","blue")) 
+
+
+```
+
+
+The vertical red line shows are final model for lasso. Blue line shows the value of gamma for the elastic model. 
+
+### Model evaluation
+
+As the predicted variable "Age" is a continuous variable, we check the efficiency of the model using \textbf{Expected prediction error in x}   
+
+$$ Err(\boldmath{x}) = E_{Y^*,Y} {( \hat{Y}(x) - Y^* )^2 }   $$
+
+where $Y^*$ is an outcome at predictor $x$, independent of the training data. 
+
+
+```{r Expected prediction error in x}
+#Cost functions
+#mse
+MSE_function=function(observedY,predictedY){
+n=length(observedY)
+MSE=(sum((observedY-predictedY)^2))/n
+return(MSE)
+}
+#model evaluation : 
+gamma = log(lasso.mod$lambda)
+
+#prediction of TRAIN dataset using generic model
+generic.pred = predict(lasso.mod, newx = scX)    
+generic.MSE = apply(generic.pred, 2,MSE_function, y)
+
+
+#prediction of TRAIN dataset using final model
+final.pred = predict(cv.final.model, newx = scX)    # using the final model
+final.MSE = apply(final.pred, 2,MSE_function, y)
+
+#prediction of TRAIN dataset using ELASTIC model
+final.pred.elastic = predict(final.elastic.model, newx = scX)    # using the final model
+final.MSE.elastic = apply(final.pred.elastic, 2,MSE_function, y)
+
+final.MSE
+final.MSE.elastic
+```
+
+
+\textbf{Prediction error on Training Data}      
+We see the Err(\boldmath{x}) = `r final.MSE` for the \textbf{Lasso}.      
+And Err(\boldmath{x}) = `r final.MSE.elastic` for the \textbf{Elastic model}.      
+Hence for prediction, the model with the lower MSE is selected.
+     
+     
+\textbf{\underline{ Prediction error on Test Data}}
+
+
+```{r TestData prediction}
+####Prediction on the test dataset####
+
+#prediction on test using generic model
+generic.pred.test = predict(lasso.mod, newx = xtest.scale)    
+generic.MSE.test = apply(generic.pred.test, 2,MSE_function, ytest.scale)
+
+#prediction on test using final model
+test.final.pred = predict(cv.final.model, newx = xtest.scale) # using the final model
+final.MSE.test = apply(test.final.pred, 2,MSE_function, ytest.scale)
+
+#prediction of TEST dataset using ELASTIC model
+final.pred.elastic.test = predict(final.elastic.model, newx = xtest.scale) 
+final.MSE.elastic.test = apply(final.pred.elastic.test, 2,MSE_function, ytest.scale)
+
+
+#MSE on test dataset with gamma from cross validation
+final.MSE.test
+final.MSE.elastic.test
+```
+
+Hence we finally see the errors on our "Test Dataset".
+
+$Err(\boldmath{x}) =`r final.MSE.test`$..... Lasso
+
+$Err(\boldmath{x}) =`r final.MSE.elastic.test`$..... Elastic net.  
+
+Hence we choose the model with minimum error. However, as we have not 'built' the model for elastic net, but randomly chosen the value of $\alpha = 0.4$ we shall not further consider it, even if it gives a lower MSE. 
+Therefore our final prediction model would be discriminated between Lasso and PCR and the one having a lower prediction MSE is selected. 
+
+# Executive summary 
+
+On comparing the MSE from Lasso (extra MSE = `r round(final.MSE.test,3)`) (as well as elastic; extra MSE = `r round(final.MSE.elastic.test,3)`) model and PCR model we observe a lower MSE for the PCR model. Hence purely keeping a good prediction model as the main objective, amongst the PCR and Lasso model,  we retain the PCR is a better model (extra MSE = `r round(msetest[70],3)`). 
+
+One of the goals of constructing a prediction model is to obtain a model with just a subset of predictors that could predict the response accurately (parsimonious model). This is achievable with Lasso and elastic net regressions. In this study, amongst the models implemented, PCR proof to perform best in prediction with the smallest MSE. 
+
+However in PCR, variables may be included that are unnecessary for prediction because the components serve to describe the variability in the predictors and not the response. Therefore large weights for variables that are strongly correlated to the latter and not the former may be retained. In essence, no matter the number of components retained, the model would always depend on all the predictors.
+
+An alternative technique would be to consider Partial Least Squares Regression (PLSR). Like PCR, this method is also implemented in modelling high dimensional data by constructing new predictor variables (components) as a linear combination of the original predictors but taken into account the correlation with the response as well. In this case only components that are both correlated to both the predictors and response would be included in the model hence may leading to a more parsimonious model.
+
